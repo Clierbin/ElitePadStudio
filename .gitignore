@@ -1,0 +1,16 @@
+.DS_Store
+build/
+dist/
+.build/
+__pycache__/
+macos/bin/
+*.pyc
+*.log
+*.bak
+*.apk
+*.keystore
+*.jks
+*.dmg
+*.cab
+*.bin
+*.pcap*
