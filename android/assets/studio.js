@@ -37,13 +37,13 @@ function renderColors(panel){
   row.className='field'; panel.append(row);
   hex.setAttribute('aria-label','六位 RGB 色值'); hex.size=8;
   row.append(chosen,hex);
-  const set=value=>{
+  const set=(value,fromWheel=false)=>{
     const code=value===null?null:value.replace(/^#/,'').toLowerCase();
     if(code!==null&&!/^[0-9a-f]{6}$/.test(code)){msg('请输入六位 RGB');return}
     const rgb=parseInt(code||'ffffff',16);
     for(const page of draft.slice(0,2))
       page.splice(45,4,code===null?255:0,...(code===null?[0,0,0]:[rgb>>16,(rgb>>8)&255,rgb&255]));
-    edit(); sync(); paint();
+    edit(); sync(fromWheel); paint();
   };
   button(row,'应用色值',()=>set(hex.value));
   const defaultButton=button(row,'默认',()=>set(null));
@@ -58,21 +58,78 @@ function renderColors(panel){
     b.style.setProperty('--sample','#'+code);swatches.push([b,code]);
   }
   const controls=make('div'); controls.hidden=true;
-  const custom=button(panel,'自定义 RGB',()=>{
+  const custom=button(panel,'自定义 RGB · 色轮',()=>{
     controls.hidden=!controls.hidden;custom.setAttribute('aria-expanded',String(!controls.hidden));
-    if(!controls.hidden)sliders[0].focus();
+    if(!controls.hidden)wheel.focus();
   });
   custom.setAttribute('aria-expanded','false');panel.append(controls);
+  const area=make('div');area.className='wheel-area';controls.append(area);
+  const picker=make('div'), values=make('div');area.append(picker,values);
+  let hue=0,saturation=0,brightness=1,steering=false;
+  const wheel=make('button');picker.append(wheel);
+  wheel.className='color-wheel';wheel.setAttribute('aria-label','色轮，按 A 开始或结束移动');
+  const cursor=make('span');cursor.className='wheel-cursor';wheel.append(cursor);
+  const help=make('p');help.className='hint';picker.append(help);
+  function steer(active){
+    steering=active;wheel.setAttribute('data-steering',String(active));
+    help.textContent=active?'方向键移动选点，按 A 结束':'按 A 进入色轮，或直接点选';
+  }
+  steer(false);wheel.onblur=()=>steer(false);
+  const preview=make('div'), sample=make('span'), detail=make('output');
+  preview.className='wheel-preview';sample.className='wheel-sample';
+  preview.append(sample,detail);values.append(preview);
+  const lightRow=label(values,'明暗'),light=make('input'),lightValue=make('output');
+  light.type='range';light.min=0;light.max=255;light.setAttribute('aria-label','色轮明暗');
+  lightRow.append(light,lightValue);
+  function applyWheel(){
+    const channel=n=>{
+      const k=(n+hue*6)%6;
+      return Math.round(255*brightness*(1-saturation*Math.max(0,Math.min(k,4-k,1))));
+    };
+    set([5,3,1].map(n=>channel(n).toString(16).padStart(2,'0')).join(''),true);
+  }
+  light.oninput=()=>{brightness=Number(light.value)/255;applyWheel()};
+  function move(x,y){
+    const distance=Math.hypot(x,y);
+    if(distance>0.00001)hue=(Math.atan2(y,x)/(2*Math.PI)+1)%1;
+    saturation=Math.min(1,distance);applyWheel();
+  }
+  wheel.onkeydown=e=>{
+    if(!steering||!['ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.key))return;
+    e.preventDefault();e.stopPropagation();
+    const angle=hue*2*Math.PI,step=e.repeat?0.08:0.025;
+    move(saturation*Math.cos(angle)+step*((e.key==='ArrowRight')-(e.key==='ArrowLeft')),
+         saturation*Math.sin(angle)+step*((e.key==='ArrowDown')-(e.key==='ArrowUp')));
+  };
+  function point(e){
+    const r=wheel.getBoundingClientRect();
+    move(2*(e.clientX-r.left)/r.width-1,2*(e.clientY-r.top)/r.height-1);
+  }
+  wheel.onpointerdown=e=>{wheel.setPointerCapture(e.pointerId);wheel.focus();point(e)};
+  wheel.onpointermove=e=>{if(wheel.hasPointerCapture(e.pointerId))point(e)};
+  wheel.onclick=e=>{if(e.detail===0)steer(!steering)};
   for(const name of ['红 R','绿 G','蓝 B']){
-    const r=label(controls,name), bar=make('input'), out=make('output');
+    const r=label(values,name), bar=make('input'), out=make('output');
     bar.type='range';bar.min=0;bar.max=255;
     bar.oninput=()=>set(sliders.map(s=>Number(s.value).toString(16).padStart(2,'0')).join(''));
     r.append(bar,out);sliders.push(bar);
   }
-  function sync(){
+  function sync(fromWheel=false){
     const page=draft[0], standard=page[45]===255;
     const rgb=standard?[255,255,255]:page.slice(46,49);
     const code=rgb.map(n=>n.toString(16).padStart(2,'0')).join('');
+    if(!fromWheel){
+      const [r,g,b]=rgb,max=Math.max(...rgb),min=Math.min(...rgb),delta=max-min;
+      brightness=max/255;saturation=max?delta/max:0;
+      if(delta)hue=(((max===r?(g-b)/delta:max===g?(b-r)/delta+2:(r-g)/delta+4)/6)+1)%1;
+    }
+    const angle=hue*2*Math.PI;
+    cursor.style.left=(50+50*saturation*Math.cos(angle))+'%';
+    cursor.style.top=(50+50*saturation*Math.sin(angle))+'%';
+    wheel.style.setProperty('--shade',1-brightness);
+    light.value=Math.round(brightness*255);lightValue.textContent=Math.round(brightness*100)+'%';
+    sample.style.backgroundColor='#'+code;
+    detail.textContent='#'+code.toUpperCase()+'　RGB ('+rgb.join(', ')+')';
     chosen.textContent='已选择的颜色：'+(standard?'默认':'#'+code.toUpperCase());
     hex.value=code;defaultButton.setAttribute('aria-pressed',String(standard));
     for(const [b,x] of swatches)b.setAttribute('aria-pressed',String(!standard&&code===x));
