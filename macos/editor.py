@@ -10,9 +10,10 @@ def pages(slot):
 class Radio:
     def __init__(self):
         HOME.mkdir(parents=True,exist_ok=True,mode=0o700)
-        if hashlib.sha256((ROOT/'firmware.bin').read_bytes()).hexdigest()!='48084d9fa53b9bb04358f3bb127b7495dc8f7bb0b3ca1437bd24ef2b6eabdf66': raise ValueError('固件校验失败')
+        firmware_dir = ROOT if (ROOT/'firmware.bin').is_file() else HOME
+        if hashlib.sha256((firmware_dir/'firmware.bin').read_bytes()).hexdigest()!='48084d9fa53b9bb04358f3bb127b7495dc8f7bb0b3ca1437bd24ef2b6eabdf66': raise ValueError('固件校验失败')
         self.log=open(HOME/'receiver.log','w')
-        self.p=subprocess.Popen([str(ROOT/'bin/elite-radio')],cwd=ROOT,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.log,text=True)
+        self.p=subprocess.Popen([str(ROOT/'bin/elite-radio')],cwd=firmware_dir,stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=self.log,text=True)
         self.seq=0
     def cmd(self,s):
         self.p.stdin.write(s+'\n');self.p.stdin.flush()

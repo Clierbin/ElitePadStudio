@@ -1,3 +1,4 @@
+import CryptoKit
 import Cocoa
 import Foundation
 final class UI:NSObject,NSApplicationDelegate,NSWindowDelegate,NSTextFieldDelegate {
@@ -46,6 +47,35 @@ final class UI:NSObject,NSApplicationDelegate,NSWindowDelegate,NSTextFieldDelega
  func label(_ s:String)->NSTextField {NSTextField(labelWithString:s)}
  func row(_ a:[NSView]){let v=NSStackView(views:a);v.spacing=10;(group ?? stack).addArrangedSubview(v)}
  func btn(_ name:String,_ sel:Selector)->NSButton{let b=NSButton(title:name,target:self,action:sel);buttons.append(b);return b}
+ func prepareFirmware() -> Bool {
+   let manager = FileManager.default
+   let folder = manager.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Elite无线配置")
+   let destination = folder.appendingPathComponent("firmware.bin")
+   if manager.fileExists(atPath: Bundle.main.resourceURL!.appendingPathComponent("firmware.bin").path) { return true }
+   let expected = "48084d9fa53b9bb04358f3bb127b7495dc8f7bb0b3ca1437bd24ef2b6eabdf66"
+   func valid(_ data: Data) -> Bool {
+     SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() == expected
+   }
+   if let data = try? Data(contentsOf: destination), valid(data) { return true }
+   let panel = NSOpenPanel()
+   panel.message = "首次使用，请选择你已有的微软接收器固件 FW_ACC_00U.bin。校验通过后会保存到本机。"
+   panel.prompt = "导入固件"
+   while panel.runModal() == .OK, let url = panel.url {
+     do {
+       let data = try Data(contentsOf: url)
+       guard valid(data) else {
+         let alert = NSAlert()
+         alert.messageText = "文件与支持的接收器固件不匹配，请重新选择。"
+         alert.runModal()
+         continue
+       }
+       try manager.createDirectory(at: folder, withIntermediateDirectories: true)
+       try data.write(to: destination, options: .atomic)
+       return true
+     } catch { NSAlert(error: error).runModal() }
+   }
+   return false
+ }
  func applicationDidFinishLaunching(_ n:Notification){
  let menu=NSMenu(), editItem=NSMenuItem(), appItem=NSMenuItem();menu.addItem(appItem);let appMenu=NSMenu();appItem.submenu=appMenu;appMenu.addItem(withTitle:"退出",action:#selector(NSApplication.terminate(_:)),keyEquivalent:"q");menu.addItem(editItem);let edit=NSMenu(title:"编辑");editItem.submenu=edit;for (t,a,k) in [("剪切","cut:","x"),("复制","copy:","c"),("粘贴","paste:","v"),("全选","selectAll:","a")]{edit.addItem(withTitle:t,action:NSSelectorFromString(a),keyEquivalent:k)};NSApp.mainMenu=menu
  win.title="精英手柄配置";win.delegate=self; win.center()
@@ -64,7 +94,8 @@ final class UI:NSObject,NSApplicationDelegate,NSWindowDelegate,NSTextFieldDelega
  };row(picks);
  hex.placeholderString="例：4A90FF";hex.delegate=self;hex.widthAnchor.constraint(equalToConstant:110).isActive=true;well.target=self;well.action=#selector(palette);well.toolTip="打开系统调色板";well.widthAnchor.constraint(equalToConstant:48).isActive=true;sample.title="屏幕取色";sample.bezelStyle = .rounded;sample.target=self;sample.action=#selector(takeSample);row([label("RGB 色值"),hex,well,sample]);group=panes[1];section("按键与手感","选择要编辑的按键层。调整只对当前档位生效。");row([tuning]);advLayer.addItems(withTitles:["常规层","Shift 层"]);var adv:[NSView]=[advLayer];for (i,title) in ["按键映射","输入行程","震动强度","摇杆曲线"].enumerated(){let b=btn(title,#selector(advancedPanel(_:)));b.tag=i;advancedButtons.append(b);adv.append(b)};row(adv);row([caption("输入行程决定多早达到满油门；摇杆曲线决定轻推时转向有多快。")]);row([caption("震动强度可分别调节握把和扳机，按键映射可更换正面按键和肩键的功能。")]);group=panes[3];section("实时手柄","直接读取当前所选手柄。这里显示板载映射后的按键，不是模拟输入。");monitor.live=true;row([monitor]);motor.addItems(withTitles:["握把 · 强马达","握把 · 弱马达","左扳机 LT","右扳机 RT"]);row([motor,btn("测试短震动",#selector(testPulse))]);row([caption("测试仅发送一次短脉冲；是否有体感取决于当前档位的马达强度。")]);group=nil;let line=NSBox();line.boxType = .separator;line.widthAnchor.constraint(equalToConstant:620).isActive=true;row([line]);let rename=btn("设备名称…",#selector(renamePad));advancedButtons.append(rename);let saveButton=btn("保存到手柄…",#selector(save));saveButton.bezelColor = .controlAccentColor;row([saveButton,rename,btn("打开备份目录",#selector(folder))]);row([status]);status.preferredMaxLayoutWidth=515
  dev.addItem(withTitle:"等待手柄");reset();win.makeKeyAndOrderFront(nil);NSApp.activate(ignoringOtherApps:true)
- let res=Bundle.main.resourceURL!;p.executableURL=URL(fileURLWithPath:"/usr/bin/python3");p.arguments=[res.appendingPathComponent("window_rpc.py").path];p.standardInput=ip;p.standardOutput=op
+ guard prepareFirmware() else { NSApp.terminate(nil); return }
+ let res=Bundle.main.resourceURL!;p.executableURL=URL(fileURLWithPath:"/usr/bin/python3");p.arguments=["-B",res.appendingPathComponent("window_rpc.py").path];p.standardInput=ip;p.standardOutput=op
  do{try p.run();liveTimer=Timer.scheduledTimer(withTimeInterval:1/30,repeats:true){[weak self] _ in self?.tickLive()};if let t=liveTimer{for mode in [RunLoop.Mode.modalPanel,.eventTracking]{RunLoop.main.add(t,forMode:mode)}};refresh();timer=Timer.scheduledTimer(withTimeInterval:3,repeats:true){[weak self] _ in if let s=self,s.devices.isEmpty && !s.busy && s.p.isRunning{s.refresh()}}}catch{status.stringValue=error.localizedDescription}
  }
  func call(_ d:[String:Any],_ cb:@escaping (Any)->Void){if busy{return};let polling=d["op"] as? String=="live";if !polling{busy=true;dev.isEnabled=false;slot.isEnabled=false}
