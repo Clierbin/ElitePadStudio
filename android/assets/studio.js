@@ -30,8 +30,56 @@ if(tab===0||tab===1){let grid=make('div');grid.className='grid';p.append(grid);l
 if(tab===2||tab===3){let rng=tab===2;(rng?['LT','左摇杆','RT','右摇杆']:['弱马达','强马达','RT 震动','LT 震动']).forEach((n,i)=>{let k=(rng?['LT','LS','RT','RS']:['rightGrip','leftGrip','RT','LT'])[i],off=(rng?[32,34,38,40]:[28,29,30,31])[i],r=label(p,n),s=make('input'),o=make('output',v[off]);s.type='range';s.max=rng?255:100;s.value=v[off];s.onfocus=()=>mark(k,n);s.oninput=()=>{v[off]=+s.value;o.textContent=s.value;edit();mark(k,n+' · '+s.value)};r.append(s,o)})}
 if(tab===4){let presets=[[43,43,127,127,191,191],[43,20,127,96,191,175],[43,70,127,160,191,215],[13,0,127,120,191,187],[26,0,127,112,191,184],[38,0,127,105,191,180]];
 ['左 X','左 Y','右 X','右 Y'].forEach((n,i)=>{let a=1+6*i,r=label(p,n),f=make('input');f.size=19;f.value=c.slice(a,a+6).join(',');let k=i<2?'LS':'RS';f.onfocus=()=>mark(k,n);let apply=vals=>{if(vals.length!==6||!vals.every(x=>Number.isInteger(x)&&x>=0&&x<=255)||!(0<vals[0]&&vals[0]<vals[2]&&vals[2]<vals[4]&&vals[4]<255&&vals[1]<=vals[3]&&vals[3]<=vals[5])){msg('曲线无效：须有三个递增输入点和非递减输出');f.value=c.slice(a,a+6).join(',');return}c.splice(a,6,...vals);f.value=vals.join(',');edit();mark(k,n)};f.onchange=()=>apply(f.value.split(',').map(x=>x.trim()===''?NaN:Number(x)));r.append(f);select(r,['自定义','线性','中心精细','快速响应','死区 5%','死区 10%','死区 15%'].map((t,j)=>[j,t]),presets.findIndex(v=>v.join(',')===f.value)+1,x=>{if(+x)apply(presets[+x-1])});const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');svg.setAttribute('viewBox','0 0 255 255');svg.style='width:72px;height:40px;background:#24363b';let line=document.createElementNS(svg.namespaceURI,'polyline');svg.append(line);function draw(){let d=c.slice(a,a+6);line.setAttribute('points','0,255 '+[0,2,4].map(j=>d[j]+','+(255-d[j+1])).join(' ')+' 255,0');line.setAttribute('style','stroke:#7bdfa8;stroke-width:8;fill:none')}r.append(svg);r.addEventListener('change',draw);draw()})}
-if(tab===5){let color=v.slice(46,49).map(x=>x.toString(16).padStart(2,'0')).join(''),r=label(p,'RGB'),f=make('input'),pick=make('input');pick.type='color';pick.value='#'+color;f.value=v[45]===255?'默认':color;let set=x=>{if(x!==null&&!/^#?[0-9a-f]{6}$/i.test(x)){msg('请输入六位 RGB');return}let n=x===null?0:parseInt(x.replace('#',''),16);for(let a of draft.slice(0,2))a.splice(45,4,x===null?255:0,n>>16,n>>8&255,n&255);edit();render()};pick.onchange=()=>set(pick.value);r.append(f,pick);button(r,'应用色值',()=>set(f.value));button(r,'默认',()=>set(null));button(r,'画面取色',()=>{const token=device,ss=slot;window.pickedColor=x=>{if(draft&&slot===ss&&device===token)set(x)};Studio.pickScreen()});for(let x of ['388aff','ed4848','50cf87','ffffff','8c50ff','ffae44']){let b=button(r,'',()=>set(x));b.className='swatch';b.style.background='#'+x;b.setAttribute('aria-label',x)}}
+if(tab===5)renderColors(p);
 if(tab===6)['握把强','握把弱','左扳机','右扳机'].forEach((n,i)=>button(p,'测试 '+n,()=>{api('pulse',{motor:i});msg('已发送短震动')}))}
+function renderColors(panel){
+  const row=make('div'), hex=make('input'), chosen=make('output'), sliders=[], swatches=[];
+  row.className='field'; panel.append(row);
+  hex.setAttribute('aria-label','六位 RGB 色值'); hex.size=8;
+  row.append(chosen,hex);
+  const set=value=>{
+    const code=value===null?null:value.replace(/^#/,'').toLowerCase();
+    if(code!==null&&!/^[0-9a-f]{6}$/.test(code)){msg('请输入六位 RGB');return}
+    const rgb=parseInt(code||'ffffff',16);
+    for(const page of draft.slice(0,2))
+      page.splice(45,4,code===null?255:0,...(code===null?[0,0,0]:[rgb>>16,(rgb>>8)&255,rgb&255]));
+    edit(); sync(); paint();
+  };
+  button(row,'应用色值',()=>set(hex.value));
+  const defaultButton=button(row,'默认',()=>set(null));
+  button(row,'画面取色',()=>{
+    const original=draft;
+    window.pickedColor=x=>{if(draft===original&&tab===5)set(x)};
+    Studio.pickScreen();
+  });
+  const palette=make('div');palette.className='field';panel.append(palette);
+  for(const [name,code] of [['蓝','388aff'],['红','ed4848'],['绿','50cf87'],['白','ffffff'],['紫','8c50ff'],['橙','ffae44'],['青','00ffff'],['黄','ffff00'],['黑','000000']]){
+    const b=button(palette,name,()=>set(code));b.className='color-choice';
+    b.style.setProperty('--sample','#'+code);swatches.push([b,code]);
+  }
+  const controls=make('div'); controls.hidden=true;
+  const custom=button(panel,'自定义 RGB',()=>{
+    controls.hidden=!controls.hidden;custom.setAttribute('aria-expanded',String(!controls.hidden));
+    if(!controls.hidden)sliders[0].focus();
+  });
+  custom.setAttribute('aria-expanded','false');panel.append(controls);
+  for(const name of ['红 R','绿 G','蓝 B']){
+    const r=label(controls,name), bar=make('input'), out=make('output');
+    bar.type='range';bar.min=0;bar.max=255;
+    bar.oninput=()=>set(sliders.map(s=>Number(s.value).toString(16).padStart(2,'0')).join(''));
+    r.append(bar,out);sliders.push(bar);
+  }
+  function sync(){
+    const page=draft[0], standard=page[45]===255;
+    const rgb=standard?[255,255,255]:page.slice(46,49);
+    const code=rgb.map(n=>n.toString(16).padStart(2,'0')).join('');
+    chosen.textContent='已选择的颜色：'+(standard?'默认':'#'+code.toUpperCase());
+    hex.value=code;defaultButton.setAttribute('aria-pressed',String(standard));
+    for(const [b,x] of swatches)b.setAttribute('aria-pressed',String(!standard&&code===x));
+    sliders.forEach((bar,i)=>{bar.value=rgb[i];bar.nextElementSibling.textContent=rgb[i]});
+  }
+  sync();
+}
 let drawn='';
 function paint(){let a=live,r=$('parts');if(!r)return;let hash=[focus,target,tab,a.slice(1).join(),!!a[0],draft?.[0]?.slice(45,49).join()].join('/');if(hash===drawn)return;drawn=hash;
 let buttons=['A','B','X','Y','D4','D5','D6','D7','LB','RB','LS','RS','Menu','View','Xbox'],pressed=k=>(a[1]||0)&(1<<buttons.indexOf(k)),lt=Math.round((a[2]||0)*100/1023),rt=Math.round((a[3]||0)*100/1023),rgb=a[10],clr=rgb>=0?'#'+rgb.toString(16).padStart(6,'0'):'#444';
